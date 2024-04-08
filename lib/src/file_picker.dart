@@ -196,4 +196,11 @@ abstract class FilePicker extends PlatformInterface {
     bool lockParentWindow = false,
   }) async =>
       throw UnimplementedError('saveFile() has not been implemented.');
+
+  /// Works only on Android.
+  /// Retrieves the result of a save file operation if system killed the app.
+  /// 
+  /// Returns the same result as [saveFile] method.
+  Future<String?> retrieveSaveFileResult() async => throw UnimplementedError(
+      'retrieveSaveFileResult() has not been implemented.');
 }

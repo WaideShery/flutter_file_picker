@@ -160,4 +160,12 @@ class FilePickerIO extends FilePicker {
       lockParentWindow: lockParentWindow,
     );
   }
+
+  @override
+  Future<String?> retrieveSaveFileResult() {
+    if (Platform.isAndroid) {
+      return _channel.invokeMethod("retrieveSaveResult");
+    }
+    return super.retrieveSaveFileResult();
+  }
 }

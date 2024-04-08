@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +14,7 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
   final _defaultFileNameController = TextEditingController();
+  final _saveFileContentController = TextEditingController();
   final _dialogTitleController = TextEditingController();
   final _initialDirectoryController = TextEditingController();
   final _fileExtensionController = TextEditingController();
@@ -114,7 +117,10 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
   Future<void> _saveFile() async {
     _resetState();
     try {
+      final fileContent = _saveFileContentController.text;
+      final bytes = fileContent.isEmpty ? null : utf8.encode(fileContent);
       String? fileName = await FilePicker.platform.saveFile(
+        bytes: bytes,
         allowedExtensions: (_extension?.isNotEmpty ?? false)
             ? _extension?.replaceAll(' ', '').split(',')
             : null,
@@ -135,6 +141,24 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _retrieveSaveResult() async {
+    _resetState();
+    try {
+      String? result = await FilePicker.platform.retrieveSaveFileResult();
+      setState(() {
+        _saveAsFileName = result;
+        _userAborted = result == null;
+      });
+    } on PlatformException catch (e) {
+      _logException('Unsupported operation' + e.toString());
+    } catch (e) {
+      _logException(e.toString());
+    } finally {
+      setState(() => _isLoading = false);
+    }
+
   }
 
   void _logException(String message) {
@@ -233,6 +257,16 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
                           labelText: 'Default File Name',
                         ),
                         controller: _defaultFileNameController,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 400,
+                      child: TextField(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Save File Content',
+                        ),
+                        controller: _saveFileContentController,
                       ),
                     ),
                     SizedBox(
@@ -359,6 +393,14 @@ class _FilePickerDemoState extends State<FilePickerDemo> {
                           onPressed: () => _saveFile(),
                           label: const Text('Save file'),
                           icon: const Icon(Icons.save_as),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 180,
+                        child: FloatingActionButton.extended(
+                          onPressed: () => _retrieveSaveResult(),
+                          label: const Text('Retrieve save result'),
+                          icon: const Icon(Icons.save_rounded),
                         ),
                       ),
                       SizedBox(

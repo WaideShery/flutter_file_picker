@@ -14,18 +14,22 @@ import android.os.Message;
 import android.os.Parcelable;
 import android.provider.DocumentsContract;
 import android.util.Log;
+import android.util.Pair;
 
 import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.app.ActivityCompat;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Objects;
 
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.PluginRegistry;
@@ -47,6 +51,9 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
     private EventChannel.EventSink eventSink;
 
     private byte[] bytes;
+    private String saveFileSuccess;
+    // Pair<errorCode, errorMessage>
+    private Pair<String, String> saveFileError;
 
     public FilePickerDelegate(final Activity activity) {
         this(
@@ -84,6 +91,11 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
     public boolean onActivityResult(final int requestCode, final int resultCode, final Intent data) {
         // Save file
         if (requestCode == SAVE_FILE_CODE) {
+            byte[] bytes = this.bytes;
+            if (bytes == null) {
+                bytes = readCachedSavingFile();
+            }
+           deleteCachedSavingFile();
             if (resultCode == Activity.RESULT_OK) {
                 this.dispatchEventStatus(true);
                 final Uri uri = data.getData();
@@ -97,17 +109,36 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
                             outputStream.flush();
                             outputStream.close();
                         }
+                        if (pendingResult == null) {
+                            saveFileSuccess = path;
+                        }
                         finishWithSuccess(path);
                         return true;
                     } catch (IOException e) {
                         Log.i(TAG, "Error while saving file", e);
-                        finishWithError("Error while saving file", e.getMessage());
+                        final String errorCode = "Error while saving file";
+                        final String errorMessage = e.getMessage();
+                        if (pendingResult == null) {
+                            saveFileError = new Pair<>(errorCode, errorMessage);
+                        }
+                        finishWithError(errorCode, errorMessage);
+                    } catch (NullPointerException e) {
+                        Log.i(TAG, "Error while saving file", e);
+                        final String errorCode = "Bytes to save is null";
+                        final String errorMessage = e.getMessage();
+                        if (pendingResult == null) {
+                            saveFileError = new Pair<>(errorCode, errorMessage);
+                        }
+                        finishWithError(errorCode, errorMessage);
                     }
                 }
 
             }
             if (resultCode == Activity.RESULT_CANCELED) {
                 Log.i(TAG, "User cancelled the save request");
+                if (pendingResult == null) {
+                    saveFileSuccess = null;
+                }
                 finishWithSuccess(null);
             }
             return false;
@@ -339,6 +370,8 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
         if (fileName != null && !fileName.isEmpty()) {
             intent.putExtra(Intent.EXTRA_TITLE, fileName);
         }
+        // save bytes to cache for restoring it if needed
+        cacheSavingFile(bytes);
         this.bytes = bytes;
         if (type != null && !"dir".equals(type) && type.split(",").length == 1) {
             intent.setType(type);
@@ -359,6 +392,77 @@ public class FilePickerDelegate implements PluginRegistry.ActivityResultListener
             Log.e(TAG, "Can't find a valid activity to handle the request. Make sure you've a file explorer installed.");
             finishWithError("invalid_format_type", "Can't handle the provided file type.");
         }
+    }
+
+    void retrieveSaveFileResult(MethodChannel.Result result) {
+        if (saveFileSuccess != null) {
+            result.success(saveFileSuccess);
+            saveFileSuccess = null;
+        } else if (saveFileError != null) {
+            result.error(saveFileError.first, saveFileError.second, null);
+            saveFileError = null;
+        } else {
+            result.success(null);
+        }
+    }
+
+    private void cacheSavingFile(byte[] bytes) {
+        final File file = getSavingFile();
+        FileOutputStream outputStream = null;
+        try {
+            if (file.exists()) {
+                file.delete();
+            }
+            outputStream = new FileOutputStream(file);
+            outputStream.write(bytes);
+            outputStream.flush();
+            outputStream.close();
+        } catch (IOException e) {
+            Log.i(TAG, "Error while saving file", e);
+        } finally {
+            if (outputStream != null) {
+                try {
+                    outputStream.close();
+                } catch (IOException e) {
+                    Log.i(TAG, "Error while closing file", e);
+                }
+            }
+        }
+    }
+
+    private byte[] readCachedSavingFile() {
+        final File file = getSavingFile();
+        FileInputStream inputStream = null;
+        byte[] bytes = null;
+        try {
+            inputStream = new FileInputStream(file);
+
+            bytes = new byte[(int) file.length()];
+            inputStream.read(bytes);
+        } catch (IOException e) {
+            Log.i(TAG, "Error while reading file", e);
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException e) {
+                    Log.i(TAG, "Error while closing file", e);
+                }
+            }
+        }
+        return bytes;
+    }
+
+    private void deleteCachedSavingFile() {
+        final File file = getSavingFile();
+        if (file.exists()) {
+            file.delete();
+        }
+    }
+
+    private File getSavingFile() {
+        final File cacheDir = activity.getCacheDir();
+        return new File(cacheDir, "temp_saving_file");
     }
 
     @SuppressWarnings("unchecked")
